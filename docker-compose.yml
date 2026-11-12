@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Relational Database (PostgreSQL)
+  postgres:
+    image: postgres:16-alpine
+    container_name: retinaguard-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-retinaguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-retinaguard_secure_pass_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-retinaguard}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retinaguard"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Machine Learning Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: retinaguard-backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-retinaguard}:${POSTGRES_PASSWORD:-retinaguard_secure_pass_2026}@postgres:5432/${POSTGRES_DB:-retinaguard}
+      - SECRET_KEY=${SECRET_KEY:-retinaguard-production-secret-key-32chars}
+      - STORAGE_DIR=/app/storage
+      - MODEL_WEIGHTS_PATH=/app/ml/weights/retinaguard_efficientnet_b0.pth
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+    ports:
+      - "8000:8000"
+    volumes:
+      - screening_storage:/app/storage
+      - ./ml/weights:/app/ml/weights
+
+  # Next.js Clinical Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: retinaguard-frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  screening_storage:
